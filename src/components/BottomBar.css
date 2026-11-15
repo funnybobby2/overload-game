@@ -1,0 +1,120 @@
+.bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 75px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 calc(350px + 24px) 0 24px;
+  background: #0a0d12;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  z-index: 50;
+}
+
+.bottom-bar-auto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #9da69e;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.bottom-bar-auto input {
+  appearance: none;
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: #2a3340;
+  cursor: pointer;
+  transition: background 200ms ease;
+  flex-shrink: 0;
+}
+
+.bottom-bar-auto input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #9da69e;
+  transition: transform 200ms ease, background 200ms ease;
+}
+
+.bottom-bar-auto input:checked {
+  background: #d5b66e;
+}
+
+.bottom-bar-auto input:checked::after {
+  transform: translateX(16px);
+  background: #0a0d12;
+}
+
+.bottom-bar-btn {
+  height: 40px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+
+.bottom-bar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.bottom-bar-suivant {
+  background: #2a3340;
+  color: #c8d0d8;
+}
+
+.bottom-bar-suivant:not(:disabled):hover {
+  background: #333f52;
+}
+
+.bottom-bar-jouer {
+  background: #d5b66e;
+  color: #0a0d12;
+}
+
+.bottom-bar-jouer:not(:disabled):hover {
+  background: #e0c880;
+}
+
+.bottom-bar-color-choice {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.bottom-bar-color-label {
+  color: #21f37f;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: right;
+  max-width: 320px;
+}
+
+.bottom-bar-color-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
