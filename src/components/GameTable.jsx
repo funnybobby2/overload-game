@@ -117,7 +117,7 @@ export default function GameTable({
         const handOnLeft = x < 50
         const isHandRevealed = player.handVisibleUntilTurn > game.turnNumber &&
           (player.handVisibleToPlayerIndex === null || player.handVisibleToPlayerIndex === 0)
-        const isCritical = isCriticalState(player)
+        const isCritical = isCriticalState(player, game.rules)
 
         return (
           <div

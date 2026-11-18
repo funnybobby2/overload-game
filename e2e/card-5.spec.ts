@@ -58,7 +58,7 @@ test('combo de deux 5 sans surcharge inverse le sens et permet de rejouer', asyn
   await page.goto('/')
   await page.waitForFunction(() => typeof window.__testSetup === 'function')
 
-  // gray 5 toujours jouable → combo sans surcharge
+  // yellow 5 de la couleur active (jaune) → combo jouable sans surcharge
   // Effet combo : inversion du sens + effet rejouer
   await page.evaluate(() => {
     window.__testSetup({
@@ -67,7 +67,7 @@ test('combo de deux 5 sans surcharge inverse le sens et permet de rejouer', asyn
       revealedCard: { type: 'overload' },
       discardPile: [{ color: 'yellow', value: 2 }],
       players: [
-        { gauge: 0, hand: [{ color: 'green', value: 5 }, { color: 'gray', value: 5 }, { color: 'red', value: 1 }] },
+        { gauge: 0, hand: [{ color: 'green', value: 5 }, { color: 'yellow', value: 5 }, { color: 'red', value: 1 }] },
         { gauge: 0, hand: [{ color: 'blue', value: 3 }, { color: 'red', value: 4 }, { color: 'pink', value: 7 }] },
       ],
       currentPlayerIndex: 0,
@@ -75,7 +75,7 @@ test('combo de deux 5 sans surcharge inverse le sens et permet de rejouer', asyn
   })
 
   await page.getByRole('button', { name: '5 vert' }).click()
-  await page.getByRole('button', { name: '5 gris' }).click()
+  await page.getByRole('button', { name: '5 jaune' }).click()
   await expect(page.getByRole('button', { name: /surcharge/i })).not.toBeVisible()
   await page.getByRole('button', { name: 'Jouer le combo', exact: true }).click()
 

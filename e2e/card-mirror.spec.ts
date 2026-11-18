@@ -24,7 +24,7 @@ test('jouer un Miroir quand le dernier coup était un Miroir affiche une erreur'
   await page.getByRole('button', { name: 'Miroir, violet' }).click()
 
   await expect(page.getByText('Vous ne pouvez pas poser un Miroir sur un autre Miroir.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Jouer la carte', exact: true })).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Jouer la carte', exact: true })).toBeDisabled()
 })
 
 // --- Ne copie pas l'effet Rejouer du 1 ---
@@ -77,6 +77,44 @@ test('Mirror après un combo de 1 ne déclenche pas le rejouer', async ({ page }
   await page.getByRole('button', { name: 'Miroir, violet' }).click()
   await page.getByRole('button', { name: 'Jouer la carte', exact: true }).click()
 
+  // Le Miroir copie la pioche du combo de 1…
+  await page.getByRole('button', { name: /joueur 2/i }).click()
+  await expect(page.locator('.player-seat[aria-label*="Joueur 2, 4 cartes"]')).toBeVisible()
+
+  // …mais pas le droit de rejouer
+  await expect(page.getByRole('button', { name: 'Rejouer la carte' })).not.toBeVisible()
+  await expect(page.getByRole('img', { name: 'rejoue' })).toHaveCount(0)
+})
+
+test('Miroir rejoué grâce à un combo de 1 ne donne pas un second rejouer', async ({ page }) => {
+  await page.goto('/')
+  await page.waitForFunction(() => typeof window.__testSetup === 'function')
+
+  await page.evaluate(() => {
+    window.__testSetup({
+      playerCount: 2,
+      activeColor: 'green',
+      revealedCard: { type: 'overload' },
+      discardPile: [{ color: 'yellow', value: 4 }],
+      players: [
+        { gauge: 0, hand: [{ color: 'green', value: 1 }, { color: 'gray', value: 1 }, { type: 'mirror' }, { color: 'red', value: 9 }] },
+        { gauge: 0, hand: [{ color: 'blue', value: 2 }, { color: 'red', value: 4 }, { color: 'pink', value: 7 }] },
+      ],
+      currentPlayerIndex: 0,
+    })
+  })
+
+  await page.getByRole('button', { name: '1 vert' }).click()
+  await page.getByRole('button', { name: '1 gris' }).click()
+  await page.getByRole('button', { name: 'Jouer le combo', exact: true }).click()
+  await page.getByRole('button', { name: /joueur 2/i }).click()
+  await expect(page.locator('.player-seat[aria-label*="Joueur 2, 4 cartes"]')).toBeVisible()
+
+  // Rejoue un Miroir : il copie le combo de 1 → Joueur 2 pioche encore, sans nouveau rejouer
+  await page.getByRole('button', { name: 'Miroir, violet' }).click()
+  await page.getByRole('button', { name: 'Rejouer la carte' }).click()
+  await page.getByRole('button', { name: /joueur 2/i }).click()
+  await expect(page.locator('.player-seat[aria-label*="Joueur 2, 5 cartes"]')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Rejouer la carte' })).not.toBeVisible()
 })
 

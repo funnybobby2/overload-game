@@ -58,7 +58,7 @@ test('combo de deux 4 sans surcharge change la couleur active et bloque les comb
   await page.goto('/')
   await page.waitForFunction(() => typeof window.__testSetup === 'function')
 
-  // gray 4 toujours jouable → combo sans surcharge
+  // yellow 4 de la couleur active (jaune) → combo jouable sans surcharge
   // Effet combo : choix de couleur + combos bloqués au prochain tour
   await page.evaluate(() => {
     window.__testSetup({
@@ -67,7 +67,7 @@ test('combo de deux 4 sans surcharge change la couleur active et bloque les comb
       revealedCard: { type: 'overload' },
       discardPile: [{ color: 'yellow', value: 7 }],
       players: [
-        { gauge: 0, hand: [{ color: 'green', value: 4 }, { color: 'gray', value: 4 }, { color: 'red', value: 1 }] },
+        { gauge: 0, hand: [{ color: 'green', value: 4 }, { color: 'yellow', value: 4 }, { color: 'red', value: 1 }] },
         { gauge: 0, hand: [{ color: 'blue', value: 2 }, { color: 'red', value: 5 }, { color: 'pink', value: 6 }] },
       ],
       currentPlayerIndex: 0,
@@ -75,7 +75,7 @@ test('combo de deux 4 sans surcharge change la couleur active et bloque les comb
   })
 
   await page.getByRole('button', { name: '4 vert' }).click()
-  await page.getByRole('button', { name: '4 gris' }).click()
+  await page.getByRole('button', { name: '4 jaune' }).click()
   await expect(page.getByRole('button', { name: /surcharge/i })).not.toBeVisible()
   await page.getByRole('button', { name: 'Jouer le combo', exact: true }).click()
 

@@ -58,7 +58,7 @@ test('combo de deux 10 sans surcharge inflige 2 surcharges à tous les adversair
   await page.goto('/')
   await page.waitForFunction(() => typeof window.__testSetup === 'function')
 
-  // gray 10 toujours jouable → combo sans surcharge
+  // yellow 10 de la couleur active (jaune) → combo jouable sans surcharge
   // Effet combo : tous les autres joueurs reçoivent 2 surcharges (0 → 2)
   await page.evaluate(() => {
     window.__testSetup({
@@ -67,7 +67,7 @@ test('combo de deux 10 sans surcharge inflige 2 surcharges à tous les adversair
       revealedCard: { type: 'overload' },
       discardPile: [{ color: 'yellow', value: 5 }],
       players: [
-        { gauge: 0, hand: [{ color: 'green', value: 10 }, { color: 'gray', value: 10 }, { color: 'red', value: 1 }] },
+        { gauge: 0, hand: [{ color: 'green', value: 10 }, { color: 'yellow', value: 10 }, { color: 'red', value: 1 }] },
         { gauge: 0, hand: [{ color: 'blue', value: 2 }, { color: 'red', value: 4 }, { color: 'pink', value: 7 }] },
       ],
       currentPlayerIndex: 0,
@@ -75,7 +75,7 @@ test('combo de deux 10 sans surcharge inflige 2 surcharges à tous les adversair
   })
 
   await page.getByRole('button', { name: '10 vert' }).click()
-  await page.getByRole('button', { name: '10 gris' }).click()
+  await page.getByRole('button', { name: '10 jaune' }).click()
   await expect(page.getByRole('button', { name: /surcharge/i })).not.toBeVisible()
   await page.getByRole('button', { name: 'Jouer le combo', exact: true }).click()
 

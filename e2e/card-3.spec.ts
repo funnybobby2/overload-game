@@ -58,7 +58,7 @@ test('combo de deux 3 sans surcharge déclenche l\'échange et révèle la main 
   await page.goto('/')
   await page.waitForFunction(() => typeof window.__testSetup === 'function')
 
-  // gray 3 toujours jouable → combo sans surcharge
+  // yellow 3 de la couleur active (jaune) → combo jouable sans surcharge
   // Effet combo : échange de carte avec la cible, puis main révélée
   await page.evaluate(() => {
     window.__testSetup({
@@ -67,7 +67,7 @@ test('combo de deux 3 sans surcharge déclenche l\'échange et révèle la main 
       revealedCard: { type: 'overload' },
       discardPile: [{ color: 'yellow', value: 7 }],
       players: [
-        { gauge: 0, hand: [{ color: 'green', value: 3 }, { color: 'gray', value: 3 }, { color: 'red', value: 1 }] },
+        { gauge: 0, hand: [{ color: 'green', value: 3 }, { color: 'yellow', value: 3 }, { color: 'red', value: 1 }] },
         { gauge: 0, hand: [{ color: 'blue', value: 4 }, { color: 'red', value: 5 }, { color: 'pink', value: 6 }] },
       ],
       currentPlayerIndex: 0,
@@ -75,7 +75,7 @@ test('combo de deux 3 sans surcharge déclenche l\'échange et révèle la main 
   })
 
   await page.getByRole('button', { name: '3 vert' }).click()
-  await page.getByRole('button', { name: '3 gris' }).click()
+  await page.getByRole('button', { name: '3 jaune' }).click()
   await expect(page.getByRole('button', { name: /surcharge/i })).not.toBeVisible()
   await page.getByRole('button', { name: 'Jouer le combo', exact: true }).click()
 

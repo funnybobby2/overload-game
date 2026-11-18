@@ -58,7 +58,7 @@ test('combo de deux 7 sans surcharge inflige une surcharge et fait piocher la ci
   await page.goto('/')
   await page.waitForFunction(() => typeof window.__testSetup === 'function')
 
-  // gray 7 toujours jouable → combo sans surcharge
+  // yellow 7 de la couleur active (jaune) → combo jouable sans surcharge
   // Effet combo : la cible prend 1 surcharge ET pioche 1 carte (bot choisit automatiquement surcharge)
   await page.evaluate(() => {
     window.__testSetup({
@@ -67,7 +67,7 @@ test('combo de deux 7 sans surcharge inflige une surcharge et fait piocher la ci
       revealedCard: { type: 'overload' },
       discardPile: [{ color: 'yellow', value: 3 }],
       players: [
-        { gauge: 0, hand: [{ color: 'green', value: 7 }, { color: 'gray', value: 7 }, { color: 'red', value: 1 }] },
+        { gauge: 0, hand: [{ color: 'green', value: 7 }, { color: 'yellow', value: 7 }, { color: 'red', value: 1 }] },
         { gauge: 0, hand: [{ color: 'blue', value: 2 }, { color: 'red', value: 4 }, { color: 'pink', value: 5 }] },
       ],
       currentPlayerIndex: 0,
@@ -75,7 +75,7 @@ test('combo de deux 7 sans surcharge inflige une surcharge et fait piocher la ci
   })
 
   await page.getByRole('button', { name: '7 vert' }).click()
-  await page.getByRole('button', { name: '7 gris' }).click()
+  await page.getByRole('button', { name: '7 jaune' }).click()
   await expect(page.getByRole('button', { name: /surcharge/i })).not.toBeVisible()
   await page.getByRole('button', { name: 'Jouer le combo', exact: true }).click()
 

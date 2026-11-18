@@ -2,6 +2,7 @@ import { type Card, type CardColorId, CARD_TYPES } from './cards.ts'
 import {
   acknowledgeEffect,
   finishTurn,
+  getChaosSourceIndex,
   isCardPlayable,
   isCriticalState,
   isMirrorOnMirrorForbidden,
@@ -26,7 +27,7 @@ function getTargetValue(game: GameState, botIndex: number, playerIndex: number):
   const scorePressure = (game.cumulativeScores[playerIndex] / 20) * 4
   const surchargePressure = player.gauge * 1.5
   const criticalPressure =
-    player.hand.length > 0 && player.hand.length < 3 ? 2 : 0
+    isCriticalState(player, game.rules) ? 2 : 0
   const shieldPenalty = player.shield ? 30 : 0
 
   return handPressure + scorePressure + surchargePressure +
@@ -141,7 +142,7 @@ export function chooseBotMove(game: GameState, botIndex: number): BotMove {
     throw new Error('Aucun Miroir ne peut être posé sur le Miroir visible.')
   }
 
-  if (!isCriticalState(player)) {
+  if (!isCriticalState(player, game.rules)) {
     for (let firstIndex = 0; firstIndex < player.hand.length; firstIndex += 1) {
       for (
         let secondIndex = firstIndex + 1;
@@ -253,18 +254,22 @@ function resolveBotEffects(
     } else if (effect.kind === 'targeted-threat-response' && effect.playerIndex === 0) {
       break
     } else if (
-      effect.kind === 'left-neighbor-swap' ||
       (
-        effect.kind === 'copy-last-effect' &&
-        effect.copiedPlay?.cardType === CARD_TYPES.CHAOS
-      )
+        effect.kind === 'left-neighbor-swap' ||
+        (
+          effect.kind === 'copy-last-effect' &&
+          effect.copiedPlay?.cardType === CARD_TYPES.CHAOS
+        )
+      ) &&
+      // Le joueur humain ne choisit que s'il participe à l'échange (pas de bouclier)
+      getChaosSourceIndex(nextGame, 0) !== null
     ) {
       nextGame = {
         ...nextGame,
         pendingEffect: { ...nextGame.pendingEffect, kind: 'chaos-human-pick' },
       }
       break
-    } else if (effect.kind === 'copy-last-effect') {
+    } else if (effect.kind === 'copy-last-effect' || effect.kind === 'left-neighbor-swap') {
       nextGame = resolvePendingEffect(nextGame, {}, random) as GameState
     } else {
       nextGame = acknowledgeEffect(nextGame) as GameState

@@ -1,9 +1,11 @@
 ﻿import { useEffect, useState } from 'react'
 import { CARD_COLORS, CARD_TYPES } from './data/cards.ts'
 import {
+  DEFAULT_RULES,
   createGame,
   finishTurn,
   forceEndRound,
+  getChaosSourceIndex,
   isCriticalState,
   isCardPlayable,
   isMirrorOnMirrorForbidden,
@@ -22,6 +24,24 @@ import Snackbar from './components/Snackbar.jsx'
 import './App.css'
 
 
+const OPTIONAL_RULES = [
+  {
+    id: 'criticalState',
+    label: 'État critique',
+    description: 'À 1 ou 2 cartes en main : combos interdits et chaque attaque subie ajoute une surcharge.',
+  },
+  {
+    id: 'shield',
+    label: 'Bouclier',
+    description: 'Après 2 attaques subies avant son tour, le joueur gagne un bouclier qui annule la prochaine attaque.',
+  },
+  {
+    id: 'blackout',
+    label: 'Panne générale',
+    description: 'Quand la pioche passe sous 8 cartes, tous les effets numériques sont doublés.',
+  },
+]
+
 const TARGETED_EFFECT_KINDS = new Set([
   'number-one-combo-target',
   'targeted-surcharge',
@@ -38,6 +58,7 @@ function App() {
   const [botError, setBotError] = useState('')
   const [autoPlay, setAutoPlay] = useState(false)
   const [deckError, setDeckError] = useState(null)
+  const [rules, setRules] = useState(DEFAULT_RULES)
   const playerCount = game?.players.length
   const localPlayer = game?.players[0]
   const selectedCards = localPlayer
@@ -67,9 +88,7 @@ function App() {
   const combosBlocked =
     game?.combosBlockedUntilTurn === game?.turnNumber
   const isChaosHumanPick = game?.pendingEffect?.kind === 'chaos-human-pick'
-  const chaosNeighborIndex = game && playerCount
-    ? (playerCount + game.turnDirection) % playerCount
-    : 1
+  const chaosNeighborIndex = (game && getChaosSourceIndex(game, 0)) ?? 1
   const isBotTurn = Boolean(
     game &&
     game.currentPlayerIndex !== 0 &&
@@ -110,7 +129,11 @@ function App() {
     if (!import.meta.env.DEV) return undefined
 
     window.__testSetup = (config) => {
-      const base = createGame(config.playerCount ?? 2)
+      const base = createGame(
+        config.playerCount ?? 2,
+        Math.random,
+        { ...DEFAULT_RULES, ...config.rules },
+      )
 
       // Collect all cards from every zone
       const allCards = [
@@ -133,19 +156,33 @@ function App() {
         return card
       }
 
-      const revealedCard = config.revealedCard
-        ? takeCard(config.revealedCard)
-        : (() => { usedIds.add(base.revealedCard.id); return base.revealedCard })()
-
-      const discardPile = config.discardPile
+      // Les cartes explicitement demandées sont réservées en premier, pour que
+      // la carte révélée aléatoire ne puisse pas en « voler » une.
+      const explicitRevealed = config.revealedCard ? takeCard(config.revealedCard) : null
+      const explicitDiscard = config.discardPile
         ? config.discardPile.map((spec) => takeCard(spec)).filter(Boolean)
-        : [revealedCard]
+        : null
+      const explicitHands = base.players.map((_, i) => {
+        const specs = config.players?.[i]?.hand
+        return specs ? specs.map((spec) => takeCard(spec)).filter(Boolean) : null
+      })
+      const explicitDrawPile = Array.isArray(config.drawPile)
+        ? config.drawPile.map((spec) => takeCard(spec)).filter(Boolean)
+        : null
+
+      const revealedCard = explicitRevealed ?? (() => {
+        const card = usedIds.has(base.revealedCard.id)
+          ? allCards.find((c) => !usedIds.has(c.id))
+          : base.revealedCard
+        usedIds.add(card.id)
+        return card
+      })()
+
+      const discardPile = explicitDiscard ?? [revealedCard]
 
       const players = base.players.map((player, i) => {
         const cfg = config.players?.[i]
-        const hand = cfg?.hand
-          ? cfg.hand.map((spec) => takeCard(spec)).filter(Boolean)
-          : player.hand.filter((c) => !usedIds.has(c.id))
+        const hand = explicitHands[i] ?? player.hand.filter((c) => !usedIds.has(c.id))
         hand.forEach((c) => usedIds.add(c.id))
         return {
           ...player,
@@ -161,9 +198,7 @@ function App() {
         activeColor: config.activeColor ?? base.activeColor,
         revealedCard,
         discardPile,
-        drawPile: Array.isArray(config.drawPile)
-          ? config.drawPile.map((spec) => takeCard(spec)).filter(Boolean)
-          : allCards.filter((c) => !usedIds.has(c.id)),
+        drawPile: explicitDrawPile ?? allCards.filter((c) => !usedIds.has(c.id)),
         players,
         currentPlayerIndex: config.currentPlayerIndex ?? 0,
         lastPlay: config.lastPlay ?? null,
@@ -212,13 +247,13 @@ function App() {
       card.type === CARD_TYPES.NUMBER &&
       selectedCards[0].value === card.value &&
       !combosBlocked &&
-      !isCriticalState(localPlayer)
+      !isCriticalState(localPlayer, game.rules)
     ) {
       setSelectedCardIds([...selectedCardIds, card.id])
       return
     }
 
-    if (isCriticalState(localPlayer)) {
+    if (isCriticalState(localPlayer, game.rules)) {
       setPlayError(
         'En état critique, vous ne pouvez pas sélectionner un combo.',
       )
@@ -246,12 +281,13 @@ function App() {
           effect.copiedPlay?.cardType === CARD_TYPES.CHAOS
         )
 
-      if (isChaosEffect) {
+      // Protégé par un bouclier (ou personne chez qui piocher) : pas de choix à faire
+      if (isChaosEffect && getChaosSourceIndex(nextGame, 0) !== null) {
         nextGame = {
           ...nextGame,
           pendingEffect: { ...nextGame.pendingEffect, kind: 'chaos-human-pick' },
         }
-      } else if (effect?.kind === 'copy-last-effect') {
+      } else if (isChaosEffect || effect?.kind === 'copy-last-effect') {
         nextGame = resolvePendingEffect(nextGame)
       }
 
@@ -395,6 +431,27 @@ function App() {
           <p className="setup-description">
             Réunissez les joueurs autour de la table et survivez à la surcharge !
           </p>
+          <fieldset className="rules-panel">
+            <legend className="select-label">Modes de jeu optionnels</legend>
+            {OPTIONAL_RULES.map((rule) => (
+              <label className="rule-toggle" key={rule.id}>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className="rule-toggle-input"
+                  checked={rules[rule.id]}
+                  onChange={(event) =>
+                    setRules({ ...rules, [rule.id]: event.target.checked })
+                  }
+                />
+                <span className="rule-toggle-track" aria-hidden="true" />
+                <span className="rule-toggle-text">
+                  <span className="rule-toggle-label">{rule.label}</span>
+                  <span className="rule-toggle-description">{rule.description}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
           <label className="select-label" htmlFor="player-count">
             Nombre de joueurs
           </label>
@@ -403,7 +460,7 @@ function App() {
             className="player-select"
             value=""
             onChange={(event) => {
-              setGame(createGame(Number(event.target.value)))
+              setGame(createGame(Number(event.target.value), Math.random, rules))
               setBotError('')
               setSelectedCardIds([])
               setPlayError('')
@@ -442,23 +499,6 @@ function App() {
             onChaosCardPick={handleChaosCardPick}
           />
           <div className="local-hand" aria-label="Votre main">
-            <span className="local-hand-label">Votre main</span>
-            <div className="local-hand-cards">
-              {game.players[0].hand.map((card, index) => {
-                const color = CARD_COLORS.find((cardColor) => cardColor.id === card.color)
-                return (
-                  <HandCard
-                    key={card.id}
-                    card={card}
-                    color={color}
-                    selected={selectedCardIds.includes(card.id)}
-                    disabled={game.currentPlayerIndex !== 0}
-                    cardIndex={index}
-                    onClick={() => toggleCardSelection(card)}
-                  />
-                )
-              })}
-            </div>
             {(game.currentPlayerIndex === 0 || isRespondingToThreat || isChaosHumanPick) && !game.roundResult && (
               <div className="hand-actions">
                 {isChoosingTarget && (
@@ -517,6 +557,23 @@ function App() {
                 )}
               </div>
             )}
+            <span className="local-hand-label">Votre main</span>
+            <div className="local-hand-cards">
+              {game.players[0].hand.map((card, index) => {
+                const color = CARD_COLORS.find((cardColor) => cardColor.id === card.color)
+                return (
+                  <HandCard
+                    key={card.id}
+                    card={card}
+                    color={color}
+                    selected={selectedCardIds.includes(card.id)}
+                    disabled={game.currentPlayerIndex !== 0}
+                    cardIndex={index}
+                    onClick={() => toggleCardSelection(card)}
+                  />
+                )
+              })}
+            </div>
           </div>
         </section>
       )}

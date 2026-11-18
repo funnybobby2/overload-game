@@ -2,7 +2,7 @@ import './Card.css'
 import cardBackImg from '../assets/card back.png'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faExplosion, faBatteryQuarter } from '@fortawesome/free-solid-svg-icons'
-import { CARD_TYPES } from '../data/cards.ts'
+import { CARD_COLORS, CARD_TYPES } from '../data/cards.ts'
 
 const CARD_TYPE_LABELS = {
   [CARD_TYPES.OVERLOAD]: 'Overload',
@@ -25,6 +25,27 @@ function CardValueContent({ card }) {
     return <img src="/miroir.png" alt="" aria-hidden="true" className="card-mirror-icon" />
   }
   return <FontAwesomeIcon icon={CARD_TYPE_ICONS[card.type]} aria-hidden="true" />
+}
+
+export function MiniCard({ card }) {
+  const color = CARD_COLORS.find((entry) => entry.id === card.color)
+  const isSpecial = card.type !== CARD_TYPES.NUMBER
+  const valueLabel = getValueLabel(card)
+  const ariaLabel = isSpecial
+    ? `${valueLabel}, ${color.label.toLowerCase()}`
+    : `${valueLabel} ${color.label.toLowerCase()}`
+
+  return (
+    <span
+      className={`card-mini${isSpecial ? ' card-mini-special' : ''}`}
+      role="img"
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      style={{ '--card-color': color.hex }}
+    >
+      <CardValueContent card={card} />
+    </span>
+  )
 }
 
 export function HandCard({ card, color, selected, disabled, cardIndex, onClick }) {

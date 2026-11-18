@@ -50,7 +50,7 @@
 }
 
 .bottom-bar-auto input:checked {
-  background: #d5b66e;
+  background: #5087cd;
 }
 
 .bottom-bar-auto input:checked::after {
@@ -85,12 +85,12 @@
 }
 
 .bottom-bar-jouer {
-  background: #d5b66e;
+  background: #5087cd;
   color: #0a0d12;
 }
 
 .bottom-bar-jouer:not(:disabled):hover {
-  background: #e0c880;
+  background: #6595d4;
 }
 
 .bottom-bar-color-choice {

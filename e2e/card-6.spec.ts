@@ -58,7 +58,7 @@ test('combo de deux 6 sans surcharge transfère une surcharge vers la cible', as
   await page.goto('/')
   await page.waitForFunction(() => typeof window.__testSetup === 'function')
 
-  // gray 6 toujours jouable → combo sans surcharge
+  // yellow 6 de la couleur active (jaune) → combo jouable sans surcharge
   // Jauge à 2 pour pouvoir transférer
   // Effet combo : transférer 1 surcharge vers un adversaire (2→1 et 0→1)
   await page.evaluate(() => {
@@ -68,7 +68,7 @@ test('combo de deux 6 sans surcharge transfère une surcharge vers la cible', as
       revealedCard: { type: 'overload' },
       discardPile: [{ color: 'yellow', value: 2 }],
       players: [
-        { gauge: 2, hand: [{ color: 'green', value: 6 }, { color: 'gray', value: 6 }, { color: 'red', value: 1 }] },
+        { gauge: 2, hand: [{ color: 'green', value: 6 }, { color: 'yellow', value: 6 }, { color: 'red', value: 1 }] },
         { gauge: 0, hand: [{ color: 'blue', value: 3 }, { color: 'red', value: 4 }, { color: 'pink', value: 7 }] },
       ],
       currentPlayerIndex: 0,
@@ -76,7 +76,7 @@ test('combo de deux 6 sans surcharge transfère une surcharge vers la cible', as
   })
 
   await page.getByRole('button', { name: '6 vert' }).click()
-  await page.getByRole('button', { name: '6 gris' }).click()
+  await page.getByRole('button', { name: '6 jaune' }).click()
   await expect(page.getByRole('button', { name: /surcharge/i })).not.toBeVisible()
   await page.getByRole('button', { name: 'Jouer le combo', exact: true }).click()
 

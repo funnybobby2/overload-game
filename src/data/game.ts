@@ -4,6 +4,18 @@ export const MAX_GAUGE = 3
 export const MATCH_POINT_LIMIT = 20
 export const LOW_DECK_THRESHOLD = 8
 
+export interface GameRules {
+  criticalState: boolean
+  shield: boolean
+  blackout: boolean
+}
+
+export const DEFAULT_RULES: GameRules = {
+  criticalState: true,
+  shield: true,
+  blackout: true,
+}
+
 const STARTING_HAND_SIZES: Record<number, number | undefined> = {
   2: 8,
   3: 7,
@@ -23,13 +35,46 @@ export interface Player {
   handVisibleToPlayerIndex: number | null
 }
 
-export interface PlayRecord {
+export interface PlaySegment {
+  cards: Card[]
+  action: string
+  targetName: string | null
+  /** Couleur annoncée par un 4 (ou un Miroir qui copie un 4). */
+  chosenColor?: string | null
+  combosBlocked?: boolean
+  /** Nature de l'effet subi par la cible, pour l'icône affichée dans l'historique. */
+  targetEffect?: 'surcharge' | 'draw' | 'threat' | 'spy' | null
+  /** Réponse de la cible d'une Menace (7) : prendre une carte ou une surcharge. */
+  threatChoice?: 'card' | 'surcharge' | null
+  /** Nouveau sens de rotation après un 5 (1 = horaire). */
+  direction?: 1 | -1 | null
+  /** Surcharge retirée par un 6 seul. */
+  surchargeRemoved?: number | null
+  /** L'effet touche tous les autres joueurs (8, 10) : « pour tous ! » au lieu de la liste. */
+  targetAll?: boolean
+  /** Nombre de cartes piochées / surcharges subies par chaque cible (8, 9, 10). */
+  effectCount?: number | null
+}
+
+export interface PlayRecord extends PlaySegment {
   playerName: string
   cardDescription: string
-  action: string
-  cards: Card[]
   isCombo: boolean
-  consequences: string[]
+  consequences: Consequence[]
+  /** Cartes rejouées grâce à un 1, enchaînées sur la même ligne d'historique. */
+  replays: PlaySegment[]
+  /** Joueurs qui ont pioché une carte dans la main d'un autre joueur. */
+  steals: CardSteal[]
+}
+
+/** Texte libre, ou conséquence affichée avec une icône dans l'historique. */
+export type Consequence =
+  | string
+  | { kind: 'shield-gained' | 'shield-lost' | 'max-surcharge'; playerName: string }
+
+export interface CardSteal {
+  takerName: string
+  sourceName: string
 }
 
 export interface LastPlay {
@@ -92,6 +137,7 @@ export interface MatchResult {
 }
 
 export interface GameState {
+  rules: GameRules
   players: Player[]
   drawPile: Card[]
   lowDeckActive: boolean
@@ -227,10 +273,18 @@ function describePlay(player: Player, cards: Card[], game: GameState): PlayRecor
     cards: cards.map((playedCard) => ({ ...playedCard })),
     isCombo: cards.length > 1,
     consequences: [],
+    targetName: null,
+    replays: [],
+    steals: [],
   }
 }
 
-function updatePlayHistory(game: GameState, effect: PendingEffect, action: string): GameState {
+function updatePlayHistory(
+  game: GameState,
+  effect: PendingEffect,
+  action: string,
+  targetName: string | null = null,
+): GameState {
   if (!Number.isInteger(effect.historyIndex)) {
     return game
   }
@@ -241,7 +295,42 @@ function updatePlayHistory(game: GameState, effect: PendingEffect, action: strin
     return game
   }
 
-  playHistory[effect.historyIndex] = { ...entry, action }
+  const segment = getLastSegment(entry)
+  playHistory[effect.historyIndex] = updateLastSegment(entry, {
+    action,
+    targetName: targetName ?? segment.targetName ?? null,
+  })
+  return { ...game, playHistory }
+}
+
+function getLastSegment(entry: PlayRecord): PlaySegment {
+  return entry.replays?.length ? entry.replays[entry.replays.length - 1] : entry
+}
+
+// Une ligne peut contenir des cartes rejouées : les mises à jour d'effet
+// s'appliquent toujours au dernier segment joué.
+function updateLastSegment(entry: PlayRecord, patch: Partial<PlaySegment>): PlayRecord {
+  if (!entry.replays?.length) {
+    return { ...entry, ...patch }
+  }
+  const replays = [...entry.replays]
+  replays[replays.length - 1] = { ...replays[replays.length - 1], ...patch }
+  return { ...entry, replays }
+}
+
+function patchHistorySegment(game: GameState, historyIndex: number, patch: Partial<PlaySegment>): GameState {
+  const entry = game.playHistory[historyIndex]
+  if (!entry) return game
+  const playHistory = [...game.playHistory]
+  playHistory[historyIndex] = updateLastSegment(entry, patch)
+  return { ...game, playHistory }
+}
+
+function addHistorySteals(game: GameState, historyIndex: number, steals: CardSteal[]): GameState {
+  const entry = game.playHistory[historyIndex]
+  if (!entry || steals.length === 0) return game
+  const playHistory = [...game.playHistory]
+  playHistory[historyIndex] = { ...entry, steals: [...(entry.steals ?? []), ...steals] }
   return { ...game, playHistory }
 }
 
@@ -251,12 +340,17 @@ function applyAutoCardEffect(
   value: number,
   isCombo: boolean,
   turnDirection: number,
+  historyIndex: number,
 ): GameState {
   const playerCount = game.players.length
 
   if (value === 2) {
     const nextIndex = (playerIndex + turnDirection + playerCount) % playerCount
-    return applyNegativeEffect(game, nextIndex, { draw: isCombo ? 2 : 1, isAttack: true })
+    const nextGame = applyNegativeEffect(game, nextIndex, { draw: isCombo ? 2 : 1, isAttack: true })
+    return patchHistorySegment(nextGame, historyIndex, {
+      targetName: game.players[nextIndex].name,
+      targetEffect: 'draw',
+    })
   }
 
   if (value === 6 && !isCombo) {
@@ -265,7 +359,9 @@ function applyAutoCardEffect(
     if (player.gauge > 0) {
       players[playerIndex] = { ...player, gauge: player.gauge - 1 }
     }
-    return { ...game, players }
+    return patchHistorySegment({ ...game, players }, historyIndex, {
+      surchargeRemoved: player.gauge > 0 ? 1 : 0,
+    })
   }
 
   if (value === 8) {
@@ -275,7 +371,15 @@ function applyAutoCardEffect(
         nextGame = applyNegativeEffect(nextGame, i, { draw: isCombo ? 2 : 1, isAttack: true })
       }
     }
-    return nextGame
+    return patchHistorySegment(nextGame, historyIndex, {
+      targetName: game.players
+        .filter((_, i) => i !== playerIndex)
+        .map((player) => player.name)
+        .join(', '),
+      targetEffect: 'draw',
+      targetAll: true,
+      effectCount: isCombo ? 2 : 1,
+    })
   }
 
   if (value === 9) {
@@ -284,15 +388,20 @@ function applyAutoCardEffect(
         .filter((_, i) => i !== playerIndex)
         .map((p) => p.hand.length),
     )
+    const targetIndices = game.players
+      .map((player, i) => (i !== playerIndex && player.hand.length === minCards ? i : null))
+      .filter((i): i is number => i !== null)
     let nextGame = game
-    for (let i = 0; i < playerCount; i += 1) {
-      if (i !== playerIndex && game.players[i].hand.length === minCards) {
-        nextGame = isCombo
-          ? applyNegativeEffect(nextGame, i, { surcharge: 1, isAttack: false })
-          : applyNegativeEffect(nextGame, i, { draw: 2, isAttack: false })
-      }
+    for (const i of targetIndices) {
+      nextGame = isCombo
+        ? applyNegativeEffect(nextGame, i, { surcharge: 1, isAttack: true })
+        : applyNegativeEffect(nextGame, i, { draw: 2, isAttack: true })
     }
-    return nextGame
+    return patchHistorySegment(nextGame, historyIndex, {
+      targetName: targetIndices.map((i) => game.players[i].name).join(', '),
+      targetEffect: isCombo ? 'surcharge' : 'draw',
+      effectCount: isCombo ? 1 : 2,
+    })
   }
 
   if (value === 10) {
@@ -302,7 +411,15 @@ function applyAutoCardEffect(
         nextGame = applyNegativeEffect(nextGame, i, { surcharge: isCombo ? 2 : 1, isAttack: true })
       }
     }
-    return nextGame
+    return patchHistorySegment(nextGame, historyIndex, {
+      targetName: game.players
+        .filter((_, i) => i !== playerIndex)
+        .map((player) => player.name)
+        .join(', '),
+      targetEffect: 'surcharge',
+      targetAll: true,
+      effectCount: isCombo ? 2 : 1,
+    })
   }
 
   return game
@@ -371,8 +488,8 @@ export function isCardPlayable(card: Card, discardPile: Card | Card[], activeCol
   return sameColor || adjacentValue
 }
 
-export function isCriticalState(player: Player): boolean {
-  return player.hand.length > 0 && player.hand.length < 3
+export function isCriticalState(player: Player, rules: GameRules = DEFAULT_RULES): boolean {
+  return rules.criticalState && player.hand.length > 0 && player.hand.length < 3
 }
 
 export function isLowDeckActive(game: GameState): boolean {
@@ -412,7 +529,8 @@ function drawCards(game: GameState, playerIndex: number, count: number): GameSta
     players,
     drawPile,
     lowDeckActive:
-      game.lowDeckActive || drawPile.length < LOW_DECK_THRESHOLD,
+      game.lowDeckActive ||
+      (game.rules.blackout && drawPile.length < LOW_DECK_THRESHOLD),
   }
 }
 
@@ -478,7 +596,7 @@ export function applyNegativeEffect(
     return { ...game, players }
   }
 
-  const wasCritical = critical ?? isCriticalState(player)
+  const wasCritical = critical ?? isCriticalState(player, game.rules)
   let nextGame = draw > 0 ? drawCards(game, playerIndex, draw) : game
   const surchargeAmount = surcharge + (wasCritical ? 1 : 0)
 
@@ -490,10 +608,11 @@ export function applyNegativeEffect(
     const players = [...nextGame.players]
     const attackedPlayer = players[playerIndex]
     const attacksSinceTurn = attackedPlayer.attacksSinceTurn + 1
+    const earnsShield = game.rules.shield && attacksSinceTurn >= 2
     players[playerIndex] = {
       ...attackedPlayer,
-      attacksSinceTurn: attacksSinceTurn >= 2 ? 0 : attacksSinceTurn,
-      shield: attacksSinceTurn >= 2,
+      attacksSinceTurn: earnsShield ? 0 : attacksSinceTurn,
+      shield: earnsShield,
     }
     nextGame = { ...nextGame, players }
   }
@@ -539,7 +658,11 @@ function getMirrorSource(lastPlay: LastPlay | null): LastPlay | null {
   return lastPlay
 }
 
-export function createGame(playerCount: number, random: () => number = Math.random): GameState {
+export function createGame(
+  playerCount: number,
+  random: () => number = Math.random,
+  rules: GameRules = DEFAULT_RULES,
+): GameState {
   const handSize = getStartingHandSize(playerCount)
   const shuffledCards = shuffleCards(CARDS as unknown as Card[], random)
   const players: Player[] = Array.from({ length: playerCount }, (_, index) => ({
@@ -563,6 +686,7 @@ export function createGame(playerCount: number, random: () => number = Math.rand
   const startingPlayerIndex = Math.floor(random() * playerCount)
 
   return {
+    rules: { ...rules },
     players,
     drawPile: shuffledCards,
     lowDeckActive: false,
@@ -639,7 +763,7 @@ export function playCards(game: GameState, playerIndex: number, cardIds: string[
     throw new Error("Un combo doit etre compose de deux cartes numerotees de meme valeur au maximum.")
   }
 
-  if (selectedCards.length > 1 && isCriticalState(player)) {
+  if (selectedCards.length > 1 && isCriticalState(player, game.rules)) {
     throw new Error("Un joueur en etat critique ne peut pas jouer de combo.")
   }
 
@@ -786,6 +910,10 @@ export function playCards(game: GameState, playerIndex: number, cardIds: string[
     }
   }
 
+  if (playedCard.type === CARD_TYPES.NUMBER && playedCard.value === 5) {
+    playHistory[playHistory.length - 1] = { ...playHistory[playHistory.length - 1], direction: turnDirection }
+  }
+
   const resultGame: GameState = {
     ...nextGame,
     turnDirection,
@@ -805,7 +933,14 @@ export function playCards(game: GameState, playerIndex: number, cardIds: string[
 
   if (!roundResult && !pendingEffect && playedCard.type === CARD_TYPES.NUMBER) {
     const before = resultGame.players
-    const afterEffect = applyAutoCardEffect(resultGame, playerIndex, playedCard.value!, isCombo, turnDirection)
+    const afterEffect = applyAutoCardEffect(
+      resultGame,
+      playerIndex,
+      playedCard.value!,
+      isCombo,
+      turnDirection,
+      resultGame.playHistory.length - 1,
+    )
     return appendConsequencesToEntry(afterEffect, afterEffect.playHistory.length - 1, before)
   }
 
@@ -822,24 +957,43 @@ function validateTarget(game: GameState, sourcePlayerIndex: number, targetPlayer
   }
 }
 
-function resolveChaos(game: GameState, random: () => number, humanChoiceCardId: string | null = null): GameState {
+/**
+ * Joueur chez qui `index` pioche lors d'un Chaos : le prochain joueur sans bouclier
+ * dans le sens du jeu. Les joueurs protégés sont sautés (ils ne donnent ni ne prennent).
+ * Renvoie null si `index` est protégé ou s'il n'y a personne chez qui piocher.
+ */
+export function getChaosSourceIndex(game: GameState, index: number): number | null {
+  const playerCount = game.players.length
+  if (game.players[index]?.shield) return null
+  for (let step = 1; step < playerCount; step += 1) {
+    const candidate = (((index + game.turnDirection * step) % playerCount) + playerCount) % playerCount
+    if (!game.players[candidate].shield) return candidate
+  }
+  return null
+}
+
+function resolveChaos(
+  game: GameState,
+  random: () => number,
+  humanChoiceCardId: string | null,
+  historyIndex: number,
+): GameState {
   if (typeof random !== "function") {
     throw new TypeError("La source aleatoire doit etre une fonction.")
   }
 
   const chosenCards: CardTransfer[] = game.players.map((_, index) => {
-    const neighborIndex = (index + game.turnDirection + game.players.length) % game.players.length
-    const neighborHand = game.players[neighborIndex].hand
-    const protectedByShield = game.players[index].shield
+    const neighborIndex = getChaosSourceIndex(game, index)
     const cardCount = game.lowDeckActive ? 2 : 1
 
-    if (protectedByShield || neighborHand.length === 0) {
+    if (neighborIndex === null || game.players[neighborIndex].hand.length === 0) {
       return {
-        sourceIndex: neighborIndex,
+        sourceIndex: neighborIndex ?? index,
         recipientIndex: index,
         cards: [],
       }
     }
+    const neighborHand = game.players[neighborIndex].hand
 
     if (index === 0 && humanChoiceCardId !== null) {
       const chosenCard = neighborHand.find((card) => card.id === humanChoiceCardId)
@@ -886,13 +1040,22 @@ function resolveChaos(game: GameState, random: () => number, humanChoiceCardId: 
     hands[recipientIndex].push(...cards)
   }
 
-  let nextGame: GameState = {
-    ...game,
-    players: game.players.map((player, index) => ({
-      ...player,
-      hand: hands[index],
-    })),
-  }
+  let nextGame: GameState = addHistorySteals(
+    {
+      ...game,
+      players: game.players.map((player, index) => ({
+        ...player,
+        hand: hands[index],
+      })),
+    },
+    historyIndex,
+    chosenCards
+      .filter(({ cards }) => cards.length > 0)
+      .map(({ recipientIndex, sourceIndex }) => ({
+        takerName: game.players[recipientIndex].name,
+        sourceName: game.players[sourceIndex].name,
+      })),
+  )
 
   for (let index = 0; index < game.players.length; index += 1) {
     if (game.players[index].shield) {
@@ -904,7 +1067,8 @@ function resolveChaos(game: GameState, random: () => number, humanChoiceCardId: 
         nextGame,
         index,
         {
-          critical: isCriticalState(game.players[index]),
+          // Chaos est un échange : pas de surcharge supplémentaire d'état critique
+          critical: false,
           isAttack: true,
         },
       )
@@ -914,21 +1078,21 @@ function resolveChaos(game: GameState, random: () => number, humanChoiceCardId: 
   return nextGame
 }
 
-function computeConsequences(before: Player[], after: Player[]): string[] {
-  const results: string[] = []
+function computeConsequences(before: Player[], after: Player[], rules: GameRules): Consequence[] {
+  const results: Consequence[] = []
   for (let i = 0; i < after.length; i++) {
     const p = before[i]
     const n = after[i]
-    if (!p.shield && n.shield) results.push(`${n.name} obtient un bouclier`)
-    if (p.shield && !n.shield) results.push(`${n.name} perd son bouclier`)
-    if (!isCriticalState(p) && isCriticalState(n)) results.push(`${n.name} est en état critique`)
-    if (n.gauge === 0 && p.gauge > 0 && n.hand.length > p.hand.length) results.push(`${n.name} déclenche une surcharge maximale`)
+    if (n.gauge === 0 && p.gauge > 0 && n.hand.length > p.hand.length) results.push({ kind: 'max-surcharge', playerName: n.name })
+    if (p.shield && !n.shield) results.push({ kind: 'shield-lost', playerName: n.name })
+    if (!p.shield && n.shield) results.push({ kind: 'shield-gained', playerName: n.name })
+    if (!isCriticalState(p, rules) && isCriticalState(n, rules)) results.push(`${n.name} est en état critique`)
   }
   return results
 }
 
 function appendConsequencesToEntry(game: GameState, historyIndex: number, before: Player[]): GameState {
-  const consequences = computeConsequences(before, game.players)
+  const consequences = computeConsequences(before, game.players, game.rules)
   if (consequences.length === 0) return game
   const playHistory = [...game.playHistory]
   const entry = playHistory[historyIndex]
@@ -965,14 +1129,23 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
       draw: 1,
       isAttack: true,
     })
-    return {
-      ...updatePlayHistory(
+    const targetName = nextGame.players[options.targetPlayerIndex!].name
+    // Un Miroir qui copie un combo de 1 ne copie que la pioche, pas le droit de rejouer.
+    const copiedByMirror = effect.cardType === CARD_TYPES.MIRROR
+    const recorded = patchHistorySegment(
+      updatePlayHistory(
         nextGame,
         effect,
-        `fait piocher ${nextGame.players[options.targetPlayerIndex!].name} puis rejoue`,
+        copiedByMirror ? `fait piocher ${targetName}` : `fait piocher ${targetName} puis rejoue`,
+        targetName,
       ),
-      pendingEffect: { ...effect, kind: 'number-one-replay' },
+      effect.historyIndex,
+      { targetEffect: 'draw' },
+    )
+    if (copiedByMirror) {
+      return withC(acknowledgeEffect(recorded))
     }
+    return { ...recorded, pendingEffect: { ...effect, kind: 'number-one-replay' } }
   }
 
   if (effect.kind === 'choose-color') {
@@ -983,13 +1156,17 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
     const colorName = CARD_COLORS.find(
       (color) => color.id === options.color,
     )!.label.toLowerCase()
-    const resolvedGame = updatePlayHistory(
+    const describedGame = updatePlayHistory(
       game,
       effect,
       effect.isCombo
         ? `choisit ${colorName} et bloque les combos au prochain tour`
         : `choisit ${colorName}`,
     )
+    const resolvedGame = patchHistorySegment(describedGame, effect.historyIndex, {
+      chosenColor: options.color!,
+      combosBlocked: effect.isCombo,
+    })
     return acknowledgeEffect({
       ...resolvedGame,
       activeColor: options.color!,
@@ -1006,13 +1183,18 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
       ? `copie Overload et vise ${targetName}`
       : `vise ${targetName}, qui recoit une surcharge`
     return withC(acknowledgeEffect(
-      updatePlayHistory(
-        applyNegativeEffect(game, options.targetPlayerIndex!, {
-          surcharge: 1,
-          isAttack: true,
-        }),
-        effect,
-        action,
+      patchHistorySegment(
+        updatePlayHistory(
+          applyNegativeEffect(game, options.targetPlayerIndex!, {
+            surcharge: 1,
+            isAttack: true,
+          }),
+          effect,
+          action,
+          targetName,
+        ),
+        effect.historyIndex,
+        { targetEffect: 'surcharge', effectCount: 1 },
       ),
     ))
   }
@@ -1027,10 +1209,15 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
       handVisibleToPlayerIndex: effect.playerIndex,
     }
     return acknowledgeEffect(
-      updatePlayHistory(
-        { ...game, players },
-        effect,
-        `espionne ${targetName}`,
+      patchHistorySegment(
+        updatePlayHistory(
+          { ...game, players },
+          effect,
+          `espionne ${targetName}`,
+          targetName,
+        ),
+        effect.historyIndex,
+        { targetEffect: 'spy' },
       ),
     )
   }
@@ -1066,6 +1253,7 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
         { ...game, players },
         effect,
         `echange une carte avec ${targetPlayer.name}`,
+        targetPlayer.name,
       ),
     ))
   }
@@ -1084,22 +1272,38 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
     }
     const targetName = game.players[options.targetPlayerIndex!].name
     return withC(acknowledgeEffect(
-      updatePlayHistory(
-        applyNegativeEffect(
-        { ...game, players },
-        options.targetPlayerIndex!,
-        { surcharge: 1, isAttack: true },
+      patchHistorySegment(
+        updatePlayHistory(
+          applyNegativeEffect(
+            { ...game, players },
+            options.targetPlayerIndex!,
+            { surcharge: 1, isAttack: true },
+          ),
+          effect,
+          `transfere une surcharge a ${targetName}`,
+          targetName,
         ),
-        effect,
-        `transfere une surcharge a ${targetName}`,
+        effect.historyIndex,
+        { targetEffect: 'surcharge' },
       ),
     ))
   }
 
   if (effect.kind === 'targeted-threat') {
     validateTarget(game, effect.playerIndex, options.targetPlayerIndex)
+    const targetName = game.players[options.targetPlayerIndex!].name
+    const entry = game.playHistory[effect.historyIndex]
     return {
-      ...game,
+      ...patchHistorySegment(
+        updatePlayHistory(
+          game,
+          effect,
+          entry ? getLastSegment(entry).action : `menace ${targetName}`,
+          targetName,
+        ),
+        effect.historyIndex,
+        { targetEffect: 'threat' },
+      ),
       pendingEffect: {
         ...effect,
         kind: 'targeted-threat-response' as EffectKind,
@@ -1126,10 +1330,14 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
     )
     if (targetPlayer.shield) {
       return withC(acknowledgeEffect(
-        updatePlayHistory(
-          nextGame,
-          effect,
-          `Menace annulée par le bouclier de ${targetPlayer.name}`,
+        patchHistorySegment(
+          updatePlayHistory(
+            nextGame,
+            effect,
+            `Menace annulée par le bouclier de ${targetPlayer.name}`,
+          ),
+          effect.historyIndex,
+          { threatChoice: takeCard ? 'card' : 'surcharge' },
         ),
       ))
     }
@@ -1145,19 +1353,27 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
         hand: [...players[effect.playerIndex].hand, takenCard],
       }
       return withC(acknowledgeEffect(
-        updatePlayHistory(
-          { ...nextGame, players },
-          effect,
-          `choisit de prendre une carte de ${sourcePlayer.name}`,
+        patchHistorySegment(
+          updatePlayHistory(
+            { ...nextGame, players },
+            effect,
+            `choisit de prendre une carte de ${sourcePlayer.name}`,
+          ),
+          effect.historyIndex,
+          { threatChoice: 'card' },
         ),
       ))
     }
 
     return withC(acknowledgeEffect(
-      updatePlayHistory(
-        nextGame,
-        effect,
-        `choisit de prendre une surcharge`,
+      patchHistorySegment(
+        updatePlayHistory(
+          nextGame,
+          effect,
+          `choisit de prendre une surcharge`,
+        ),
+        effect.historyIndex,
+        { threatChoice: takeCard ? 'card' : 'surcharge' },
       ),
     ))
   }
@@ -1166,11 +1382,11 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
     if (!options.choiceCardId) {
       throw new Error("Cliquez sur une carte de votre adversaire pour l'obtenir.")
     }
-    return withC(acknowledgeEffect(resolveChaos(game, random, options.choiceCardId)))
+    return withC(acknowledgeEffect(resolveChaos(game, random, options.choiceCardId, historyIndex)))
   }
 
   if (effect.kind === 'left-neighbor-swap') {
-    return withC(acknowledgeEffect(resolveChaos(game, random)))
+    return withC(acknowledgeEffect(resolveChaos(game, random, null, historyIndex)))
   }
 
   if (effect.kind === 'copy-last-effect') {
@@ -1180,7 +1396,7 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
     }
 
     if (copiedPlay.cardType === CARD_TYPES.CHAOS) {
-      return withC(acknowledgeEffect(resolveChaos(game, random)))
+      return withC(acknowledgeEffect(resolveChaos(game, random, null, historyIndex)))
     }
 
     if (copiedPlay.cardType === CARD_TYPES.OVERLOAD) {
@@ -1196,8 +1412,8 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
       }
 
       if (value === 5) {
-        const updatedGame = { ...game, turnDirection: (game.turnDirection * -1) as 1 | -1 }
-        return acknowledgeEffect(updatedGame)
+        const turnDirection = (game.turnDirection * -1) as 1 | -1
+        return acknowledgeEffect(patchHistorySegment({ ...game, turnDirection }, effect.historyIndex, { direction: turnDirection }))
       }
 
       if (value === 3) {
@@ -1223,7 +1439,14 @@ export function resolvePendingEffect(game: GameState, options: ResolveOptions = 
       }
 
       return withC(acknowledgeEffect(
-        applyAutoCardEffect(game, effect.playerIndex, value!, isCombo, game.turnDirection),
+        applyAutoCardEffect(
+          game,
+          effect.playerIndex,
+          value!,
+          isCombo,
+          game.turnDirection,
+          effect.historyIndex,
+        ),
       ))
     }
 
@@ -1297,7 +1520,47 @@ export function replayCard(game: GameState, playerIndex: number, cardIds: string
     useSurcharge,
   )
 
-  return replayedGame
+  return mergeReplayIntoHistory(replayedGame, effect.historyIndex)
+}
+
+// La carte rejouée rejoint la ligne d'historique du 1 : « Vous : [1] [x] → … ».
+function mergeReplayIntoHistory(game: GameState, targetIndex: number): GameState {
+  const replayIndex = game.playHistory.length - 1
+  const target = game.playHistory[targetIndex]
+  const replay = game.playHistory[replayIndex]
+  if (!target || !replay || replayIndex === targetIndex) {
+    return game
+  }
+
+  const playHistory = game.playHistory.slice(0, replayIndex)
+  playHistory[targetIndex] = {
+    ...target,
+    consequences: [...target.consequences, ...replay.consequences],
+    steals: [...(target.steals ?? []), ...(replay.steals ?? [])],
+    replays: [
+      ...(target.replays ?? []),
+      {
+        cards: replay.cards,
+        action: replay.action,
+        targetName: replay.targetName,
+        chosenColor: replay.chosenColor,
+        combosBlocked: replay.combosBlocked,
+        targetEffect: replay.targetEffect,
+        targetAll: replay.targetAll,
+        effectCount: replay.effectCount,
+        threatChoice: replay.threatChoice,
+        direction: replay.direction,
+        surchargeRemoved: replay.surchargeRemoved,
+      },
+      ...(replay.replays ?? []),
+    ],
+  }
+
+  const pendingEffect = game.pendingEffect?.historyIndex === replayIndex
+    ? { ...game.pendingEffect, historyIndex: targetIndex }
+    : game.pendingEffect
+
+  return { ...game, playHistory, pendingEffect }
 }
 
 export function advanceTurn(game: GameState): GameState {
@@ -1313,7 +1576,7 @@ export function startNextRound(game: GameState, random: () => number = Math.rand
     throw new Error("La partie est terminee.")
   }
 
-  const nextRound = createGame(game.players.length, random)
+  const nextRound = createGame(game.players.length, random, game.rules)
 
   return {
     ...nextRound,

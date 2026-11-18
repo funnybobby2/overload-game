@@ -77,7 +77,7 @@
 .card-opponent::before {
   position: absolute;
   inset: 3px;
-  border: 1px solid rgba(213, 182, 110, 0.55);
+  border: 1px solid rgba(110, 139, 213, 0.55);
   border-radius: 2px;
   content: '';
 }
@@ -102,8 +102,8 @@
 /* === Pickable state === */
 .card-pickable {
   cursor: pointer;
-  border-color: #e8c547;
-  box-shadow: 0 0 0 2px rgba(232, 197, 71, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  border-color: #479ae8;
+  box-shadow: 0 0 0 2px rgba(71, 146, 232, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
@@ -111,7 +111,7 @@
 .card-pickable:focus-visible {
   z-index: 30;
   transform: translateY(-4px);
-  box-shadow: 0 0 0 2px #e8c547, 0 6px 14px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 2px #4798e8, 0 6px 14px rgba(0, 0, 0, 0.45);
   outline: none;
 }
 
@@ -201,10 +201,10 @@
   flex-direction: column;
   gap: 9px;
   padding: 12px 14px;
-  border: 1px solid rgba(213, 182, 110, 0.65);
+  border: 1px solid rgba(110, 141, 213, 0.65);
   border-radius: 8px;
   background: #19221c;
-  color: #e8dfc7;
+  color: #c7d2e8;
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
   font-size: 12px;
   font-weight: 400;
@@ -224,8 +224,8 @@
   left: 50%;
   width: 8px;
   height: 8px;
-  border-right: 1px solid rgba(213, 182, 110, 0.65);
-  border-bottom: 1px solid rgba(213, 182, 110, 0.65);
+  border-right: 1px solid rgba(110, 151, 213, 0.65);
+  border-bottom: 1px solid rgba(110, 136, 213, 0.65);
   background: #19221c;
   content: '';
   transform: translate(-50%, -50%) rotate(45deg);
@@ -239,7 +239,7 @@
 }
 
 .card-tooltip-title {
-  color: #f2d58f;
+  color: #8fa6f2;
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 15px;
   font-weight: 700;
@@ -252,7 +252,7 @@
 }
 
 .card-tooltip-label {
-  color: #d5b66e;
+  color: #5087cd;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.09em;
@@ -270,4 +270,33 @@
   .card-hand .card-value-special {
     font-size: 9px;
   }
+}
+
+/* === Mini card (historique) === */
+.card-mini {
+  display: inline-grid;
+  width: 15px;
+  height: 21px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+  background: var(--card-color);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.card-mini-special svg {
+  width: 9px;
+  height: 9px;
+  color: #fff;
+}
+
+.card-mini .card-mirror-icon {
+  width: 11px;
+  height: 11px;
+  object-fit: contain;
 }

@@ -225,7 +225,7 @@ test('combo 6 transférant une surcharge à un joueur en état critique lui en i
   await page.getByRole('button', { name: '6 gris' }).click()
   await page.getByRole('button', { name: 'Jouer le combo', exact: true }).click()
 
-  await expect(page.getByText('Cliquez sur un joueur à cibler.')).toBeVisible()
+  await expect(page.getByText('Cliquez sur le joueur qui recevra votre surcharge.')).toBeVisible()
   await page.getByRole('button', { name: /joueur 2/i }).click()
 
   await expect(page.getByRole('meter', { name: 'Jauge de Vous' })).toHaveAttribute('aria-valuenow', '0')
